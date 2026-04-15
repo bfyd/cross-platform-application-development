@@ -1,8 +1,17 @@
 package javaapplication4;
 
-import java.io.Serializable;
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
-public class RecIntegral implements Serializable {
+public class RecIntegral implements Externalizable {
     private static final long serialVersionUID = 1L;
 
     private static final double MIN_VALUE = 0.000001;
@@ -14,6 +23,26 @@ public class RecIntegral implements Serializable {
     private double upper;
     private double step;
     private Double result;
+
+    // Обязательный пустой конструктор для Externalizable
+    public RecIntegral() {
+    }
+
+    public RecIntegral(double lower, double upper, double step) throws InvalidRangeException {
+        validateAll(lower, upper, step);
+        this.lower = lower;
+        this.upper = upper;
+        this.step = step;
+        this.result = null;
+    }
+
+    public RecIntegral(double lower, double upper, double step, double result) throws InvalidRangeException {
+        validateAll(lower, upper, step);
+        this.lower = lower;
+        this.upper = upper;
+        this.step = step;
+        this.result = result;
+    }
 
     private void validateBound(double value) throws InvalidRangeException {
         if (value < MIN_VALUE || value > MAX_VALUE) {
@@ -42,22 +71,6 @@ public class RecIntegral implements Serializable {
                 "Шаг должен быть меньше или равен разнице между верхней и нижней границами."
             );
         }
-    }
-
-    public RecIntegral(double lower, double upper, double step) throws InvalidRangeException {
-        validateAll(lower, upper, step);
-        this.lower = lower;
-        this.upper = upper;
-        this.step = step;
-        this.result = null;
-    }
-
-    public RecIntegral(double lower, double upper, double step, double result) throws InvalidRangeException {
-        validateAll(lower, upper, step);
-        this.lower = lower;
-        this.upper = upper;
-        this.step = step;
-        this.result = result;
     }
 
     public double getLower() {
@@ -95,7 +108,8 @@ public class RecIntegral implements Serializable {
         this.result = result;
     }
 
-    public double integrateSqrtMultiThreaded(double lp, double hp, double step) throws InterruptedException {
+    public double integrateSqrtMultiThreaded(double lp, double hp, double step)
+            throws InterruptedException, ExecutionException {
         if (lp < 0 || hp < 0) {
             throw new IllegalArgumentException("Границы интегрирования не могут быть отрицательными.");
         }
@@ -109,29 +123,63 @@ public class RecIntegral implements Serializable {
         double intervalLength = hp - lp;
         double partLength = intervalLength / THREAD_COUNT;
 
-        IntegralTask[] tasks = new IntegralTask[THREAD_COUNT];
-        Thread[] threads = new Thread[THREAD_COUNT];
+        ExecutorService executor = Executors.newFixedThreadPool(THREAD_COUNT);
+        List<Future<Double>> futures = new ArrayList<>();
 
         double start = lp;
 
-        for (int i = 0; i < THREAD_COUNT; i++) {
-            double end = (i == THREAD_COUNT - 1) ? hp : start + partLength;
+        try {
+            for (int i = 0; i < THREAD_COUNT; i++) {
+                double end = (i == THREAD_COUNT - 1) ? hp : start + partLength;
 
-            tasks[i] = new IntegralTask(start, end, step);
-            threads[i] = new Thread(tasks[i]);
-            threads[i].start();
+                IntegralTask task = new IntegralTask(start, end, step);
+                futures.add(executor.submit(task));
 
-            start = end;
+                start = end;
+            }
+
+            double total = 0.0;
+
+            for (Future<Double> future : futures) {
+                total += future.get();
+            }
+
+            return total;
+        } finally {
+            executor.shutdown();
         }
+    }
 
-        double total = 0.0;
+    @Override
+    public void writeExternal(ObjectOutput out) throws IOException {
+        out.writeDouble(lower);
+        out.writeDouble(upper);
+        out.writeDouble(step);
 
-        for (int i = 0; i < THREAD_COUNT; i++) {
-            threads[i].join();
-            total += tasks[i].getPartialResult();
+        out.writeBoolean(result != null);
+        if (result != null) {
+            out.writeDouble(result);
         }
+    }
 
-        return total;
+    @Override
+    public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
+        try {
+            lower = in.readDouble();
+            upper = in.readDouble();
+            step = in.readDouble();
+
+            boolean hasResult = in.readBoolean();
+            if (hasResult) {
+                result = in.readDouble();
+            } else {
+                result = null;
+            }
+
+            validateAll(lower, upper, step);
+        } catch (InvalidRangeException e) {
+            throw new IOException("Ошибка при чтении объекта RecIntegral: " + e.getMessage());
+        }
     }
 
     @Override

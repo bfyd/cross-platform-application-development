@@ -1,20 +1,21 @@
 package javaapplication4;
 
-public class IntegralTask implements Runnable {
+import java.util.concurrent.Callable;
+
+public class IntegralTask implements Callable<Double> {
     private final double start;
     private final double end;
     private final double step;
-    private double partialResult;
 
     public IntegralTask(double start, double end, double step) {
         this.start = start;
         this.end = end;
         this.step = step;
-        this.partialResult = 0.0;
     }
 
     @Override
-    public void run() {
+    public Double call() {
+        double partialResult = 0.0;
         double x = start;
 
         while (x < end) {
@@ -22,9 +23,7 @@ public class IntegralTask implements Runnable {
             partialResult += Math.sqrt(x) * (nextX - x);
             x = nextX;
         }
-    }
 
-    public double getPartialResult() {
         return partialResult;
     }
 }
